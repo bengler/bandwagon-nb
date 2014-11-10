@@ -1,0 +1,25 @@
+{
+  "name": "bandwagon-nb",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Eksport av lydfiler og artister i bandwagon for Nasjonalbiblioteket",
+  "main": "index.js",
+  "scripts": {
+    "start": "DEBUG=* node index.js"
+  },
+  "author": "Bengler AS",
+  "dependencies": {
+    "bluebird": "^2.3.11",
+    "debug": "^2.1.0",
+    "es6-shim": "^0.20.2",
+    "event-stream": "^3.1.7",
+    "mkdirp": "^0.3.5",
+    "pebbles-client": "git://github.com/bengler/pebbles-client.js#1.x",
+    "pebbles-uid": "git://github.com/bengler/pebbles-uid.js",
+    "request": "^2.34.0",
+    "sanitize-filename": "^1.0.1",
+    "through2": "^0.6.3",
+    "xmlbuilder": "^2.2.1",
+    "xtend": "^4.0.0"
+  }
+}
