@@ -70,9 +70,9 @@
       "from": "mkdirp@"
     },
     "pebbles-client": {
-      "version": "1.0.20",
-      "from": "pebbles-client@git://github.com/bengler/pebbles-client.js#1.x",
-      "resolved": "git://github.com/bengler/pebbles-client.js#4affd77990e21a36e3b4da9546607688a4b80ca1",
+      "version": "1.0.21",
+      "from": "git://github.com/bengler/pebbles-client.js#1.x",
+      "resolved": "git://github.com/bengler/pebbles-client.js#54773d31fc827cf4672ab20b998439c009f774b5",
       "dependencies": {
         "deep-extend": {
           "version": "0.3.2",
