@@ -121,15 +121,6 @@ function addIdentity() {
         callback(error)
       });
   });
-
-  function trackUid2ArtistUid(trackUid) {
-    var parsedUid = new Uid(trackUid);
-    var trackPath = parsedUid.path().toArray();
-    return parsedUid
-      .klass('post.artist')
-      .path(trackPath.slice(0, 2).concat(trackPath[4]).join("."))
-      .oid(parsedUid.path().last());
-  }
 }
 
 function addPublication() {
@@ -212,9 +203,22 @@ function ensureAudioFile() {
           return callback(err);
         }
         debug(" Downloading %s to %s", entry.fileUrl, cacheFile);
-        request(entry.fileUrl)
+        var req = request(entry.fileUrl)
+          .on('response', function(response) {
+            if (response.statusCode == 403) {
+              var e = new Error("S3 says forbidden while downloading audio file (it means the file was not found)");
+              e.status = e.statusCode = 403;
+              req.emit('error', e);
+            }
+          })
           .pipe(fs.createWriteStream(cacheFile+'.tmp'))
-          .on('error', callback)
+          .on('error', function(e) {
+            if (e.status == 403) {
+              debug('[warning] Audio file missing from s3. Skipping');
+              return callback(); // Effectively means filter
+            }
+            callback(e);
+          })
           .on('finish', function() {
             fs.rename(cacheFile+'.tmp', cacheFile, function(err) {
               callback(err, entry)
