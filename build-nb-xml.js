@@ -9,11 +9,12 @@ function formatName(object) {
 }
 
 function buildXML(year, entry) {
+  var members = (entry.artist.document.members || []).filter(Boolean);
   var data = {
     DigitalMediaId: {
       SongTitle: entry.track.document.name,
       Artist: entry.artist.document.name,
-      Rightsholder: (entry.track.document.author || entry.uploadedBy.profile.name),
+      Rightsholder: (entry.track.document.author || (members.length == 1 ? members[0].name : entry.uploadedBy.profile.name)),
       Project: 'Bandwagon ' + year,
       RevisionNumber: 'R01',
       MediaType: 'DIS',
@@ -34,7 +35,7 @@ function buildXML(year, entry) {
       },
       Credits: {
         Writers: EMPTY,
-        Performers: (entry.artist.document.members || []).map(formatName).join(';'),
+        Performers: (members || []).map(formatName).join(';'),
         Producers: EMPTY,
         TrackingStudios: EMPTY,
         TrackingEngineers: EMPTY,

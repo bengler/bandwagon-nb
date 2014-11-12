@@ -16,7 +16,7 @@ var buildXML = require("./build-nb-xml");
 var backend = require("./backend");
 
 mkdirp('./out', function() {
-  es.readArray([2012])
+  es.readArray([2013])
     .pipe(fetchTracksFromYear())
     .pipe(addArtist())
     .pipe(addMeta())
@@ -36,27 +36,32 @@ var unknownArtist = {
     name: '<ukjent>' 
   }
 };
-
-function fetchTracksFromYear() {
+function fetchTracksFromYear(options) {
+  options = options || {};
+  var page = 0;
   return through.obj(function (year, enc, callback) {
     debug("Fetching tracks for %d", year);
     var self = this;
     function fetchNext(pagination) {
       return backend.fetchPosts("post.track:apdm.bandwagon." + year + ".*", pagination)
         .then(function (result) {
+          page++;
           result.posts.forEach(function (post) {
             self.push({
               year: year,
               track: post
             });
           });
-          if (!result.pagination.last_page) {
-            return fetchNext({
-              offset: result.pagination.offset + result.pagination.limit,
-              limit: result.pagination.limit,
-              last_page: result.pagination.last_page
-            })
+          
+          if ((options.pages && options.pages == page) || result.pagination.last_page) {
+            return;
           }
+          
+          return fetchNext({
+            offset: result.pagination.offset + result.pagination.limit,
+            limit: result.pagination.limit,
+            last_page: result.pagination.last_page
+          })
         });
     }
     return fetchNext({offset: 0, limit: 25})
@@ -116,7 +121,7 @@ function addIdentity() {
       })
       .catch(function (error) {
         if (error.status == 404) {
-          debug("[warning] Artist not found for track %s", entry.track.document.name);
+          debug("[warning] Identity not found for track %s", entry.track.document.name);
         }
         callback(error)
       });
@@ -129,16 +134,26 @@ function addPublication() {
     var publicationLabel = trackUid2PublicationLabel(entry.track.uid);
     backend.fetchPublication(publicationLabel)
       .then(function (publication) {
-        callback(null, xtend(entry, {
-          publication: publication
-        }));
+        gotPublication(publication);
       })
       .catch(function (error) {
-        debug("[warning] Could not fetch publication for track %s (label: %s)", entry.track.document.name, publicationLabel);
-        callback(error);
+        debug("[warning] Could not fetch publication for track %s (label: %s) ", entry.track.document.name, publicationLabel, error);
+        gotPublication({
+          label: publicationLabel,
+          title: titlecase(publicationLabel)
+        });
       });
+
+    function gotPublication(publication) {
+      callback(null, xtend(entry, {
+        publication: publication
+      }));
+    }
   });
 
+  function titlecase(str) {
+    return str ? str.substring(0, 1).toUpperCase() + str.substring(1) : str 
+  }
   function trackUid2PublicationLabel(trackUid) {
     var parsedUid = new Uid(trackUid);
     var trackPath = parsedUid.path().toArray();
@@ -269,6 +284,7 @@ function logSummary() {
   var entryCounts = {};
   return through.obj(function(entry, enc, callback) {
     entryCounts[entry.year] = (entryCounts[entry.year] || 0) + 1;
+    debug("Done with %s by %s", entry.track.document.name, entry.artist.document.name);
     callback();
   }, function done() {
     Object.keys(entryCounts).forEach(function(year) {
