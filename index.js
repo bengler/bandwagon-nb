@@ -20,14 +20,22 @@ mkdirp('./out', function() {
     .pipe(fetchTracksFromYear())
     .pipe(addArtist())
     .pipe(addMeta())
+    .pipe(addPublication())
+    .pipe(addIdentity())
     .pipe(ensureAudioFile())
     .pipe(copyFile())
     .pipe(dumpXML())
     // json is now embedded in OtherDocuments field in xml
-    // .pipe(dumpJSON())
+    //.pipe(dumpJSON())
     .pipe(logSummary())
   ;
 });
+
+var unknownArtist = {
+  document: {
+    name: '<ukjent>' 
+  }
+};
 
 function fetchTracksFromYear() {
   return through.obj(function (year, enc, callback) {
@@ -57,7 +65,7 @@ function fetchTracksFromYear() {
         callback(null, null);
       })
       .catch(function(error) {
-        debug("Done fetching tracks for %d", year);
+        debug("Got error while fetching tracks for "+year, error);
         callback(error)
     });
   });
@@ -69,13 +77,21 @@ function addArtist() {
     var artistUid = trackUid2ArtistUid(entry.track.uid).toString();
     backend.fetchPost(artistUid)
       .then(function (artist) {
-        callback(null, xtend(entry, {
-          artist: artist
-        }));
+        gotArtist(artist);
       })
       .catch(function (error) {
+        if (error.status == 404) {
+          debug("[warning] Artist not found for track %s", entry.track.document.name);
+          return gotArtist(unknownArtist);
+        }
         callback(error)
-      })
+      });
+    
+    function gotArtist(artist) {
+      callback(null, xtend(entry, {
+        artist: artist
+      }))
+    }
   });
 
   function trackUid2ArtistUid(trackUid) {
@@ -88,36 +104,80 @@ function addArtist() {
   }
 }
 
+function addIdentity() {
+  return through.obj(function (entry, enc, callback) {
+    debug("Adding identity to entry for track %s", entry.track.document.name);
+    var uploadedBy = entry.track.created_by;
+    backend.fetchIdentity(uploadedBy)
+      .then(function (identity) {
+        callback(null, xtend(entry, {
+          uploadedBy: identity
+        }))
+      })
+      .catch(function (error) {
+        if (error.status == 404) {
+          debug("[warning] Artist not found for track %s", entry.track.document.name);
+        }
+        callback(error)
+      });
+  });
+
+  function trackUid2ArtistUid(trackUid) {
+    var parsedUid = new Uid(trackUid);
+    var trackPath = parsedUid.path().toArray();
+    return parsedUid
+      .klass('post.artist')
+      .path(trackPath.slice(0, 2).concat(trackPath[4]).join("."))
+      .oid(parsedUid.path().last());
+  }
+}
+
+function addPublication() {
+  return through.obj(function (entry, enc, callback) {
+    debug("Adding publication to entry for track %s", entry.track.document.name);
+    var publicationLabel = trackUid2PublicationLabel(entry.track.uid);
+    backend.fetchPublication(publicationLabel)
+      .then(function (publication) {
+        callback(null, xtend(entry, {
+          publication: publication
+        }));
+      })
+      .catch(function (error) {
+        debug("[warning] Could not fetch publication for track %s (label: %s)", entry.track.document.name, publicationLabel);
+        callback(error);
+      });
+  });
+
+  function trackUid2PublicationLabel(trackUid) {
+    var parsedUid = new Uid(trackUid);
+    var trackPath = parsedUid.path().toArray();
+    // e.g [ 'apdm', 'bandwagon', '2012', 'inner', 'oa', '445898' ]
+    return trackPath.slice(-2)[0];
+  }
+}
+
 function addMeta() {
   return through.obj(function(entry, enc, callback) {
 
     debug("Adding metadata to entry for track %s", entry.track.document.name);
 
-    var localPath = resolveAudioFilePathName(entry.track);
-    var fileUrl = resolveAudioFileUrl(entry.track);
+    var trackFileUrl = entry.track.document.audio_file_url;
+    var localPath = url.parse(trackFileUrl).pathname;
     var cacheFile = path.join(__dirname, 'cache', localPath);
-    var baseName = generateBaseName(entry);
 
+    var baseName = generateFileBaseName(entry);
+    
     callback(null, xtend(entry, {
       localPath: localPath,
-      fileUrl: fileUrl,
+      fileUrl: trackFileUrl,
       cacheFile: cacheFile,
       baseName: baseName
     }));
   });
 
-
-  function resolveAudioFileUrl(track) {
-    return url.resolve(track.document.audio_file + '/', track.document.audio_file_url);
-  }
-
-  function resolveAudioFilePathName(track) {
-    var fileUrlDirname = urlDirname(track.document.audio_file_url);
-    var originalFileName = getOriginalFilename(track.document.audio_file);
-    return path.join(url.parse(fileUrlDirname).pathname, originalFileName);
-  }
-
-  function generateBaseName(entry) {
+  // This generates the the basename of the the file as it appears in the export (./out-folder)
+  // It is according to the nasjonalbiblioteket-spec.
+  function generateFileBaseName(entry) {
     if (entry.artist.document.name.indexOf('_') > 0) {
       debug("[warn] Found underscore in artist name: ", entry.artist.document.name);
     }
@@ -137,22 +197,6 @@ function addMeta() {
       'R01'
     ].join("_")
   }
-
-
-  function getOriginalFilename(uid) {
-    var parsedUid = new Uid(uid);
-    var parts = parsedUid.oid().split("-");
-    var originalExtension = parts[2];
-    var titleSlug = parts.slice(3).join("-");
-    return [titleSlug, originalExtension].join(".");
-  }
-  function urlDirname(_url) {
-    var parsed = url.parse(_url);
-    parsed.pathname = path.dirname(parsed.pathname);
-    return url.format(parsed);
-  }
-
-
 }
 
 function ensureAudioFile() {
@@ -161,6 +205,7 @@ function ensureAudioFile() {
       var cacheFile = entry.cacheFile;
       if (exists) {
         debug(" Cached file %s exists for %s", cacheFile, entry.fileUrl);
+        return callback(null, entry)
       }
       mkdirp(path.dirname(cacheFile), function (err) {
         if (err) {
@@ -168,10 +213,12 @@ function ensureAudioFile() {
         }
         debug(" Downloading %s to %s", entry.fileUrl, cacheFile);
         request(entry.fileUrl)
-          .pipe(fs.createWriteStream(cacheFile))
+          .pipe(fs.createWriteStream(cacheFile+'.tmp'))
           .on('error', callback)
           .on('finish', function() {
-            callback(null, entry)
+            fs.rename(cacheFile+'.tmp', cacheFile, function(err) {
+              callback(err, entry)
+            });
           });
       })
     });
@@ -191,13 +238,13 @@ function copyFile() {
 
 function dumpJSON() {
   return through.obj(function(entry, enc, callback) {
-    var target = __dirname + '/out/' + entry.baseName + ".txt";
+    var target = __dirname + '/out/' + entry.baseName + ".json";
     var json = {
       year: entry.year,
       artist: entry.artist.document,
       track: entry.track.document
     };
-    fs.writeFile(target, JSON.stringify(json, null, 2), function(err) {
+    fs.writeFile(target, JSON.stringify(entry, null, 2), function(err) {
       callback(err, entry);
     });
   });
@@ -205,10 +252,7 @@ function dumpJSON() {
 
 function dumpXML() {
   return through.obj(function(entry, enc, callback) {
-    var xmlContent = buildXML(entry.year, {
-      track: entry.track,
-      artist: entry.artist
-    });
+    var xmlContent = buildXML(entry.year, entry);
 
     var target = __dirname + '/out/' + entry.baseName + ".xml";
     fs.writeFile(target, xmlContent, function(err) {

@@ -1,5 +1,6 @@
 module.exports = buildXML;
 var builder = require('xmlbuilder');
+var debug = require("debug")('bandwagon-nb');
 
 const EMPTY = '';
 
@@ -12,7 +13,7 @@ function buildXML(year, entry) {
     DigitalMediaId: {
       SongTitle: entry.track.document.name,
       Artist: entry.artist.document.name,
-      Rightsholder: entry.artist.document.name,
+      Rightsholder: (entry.track.document.author || entry.uploadedBy.profile.name),
       Project: 'Bandwagon ' + year,
       RevisionNumber: 'R01',
       MediaType: 'DIS',
@@ -48,7 +49,7 @@ function buildXML(year, entry) {
         ArchiveTitleNumber: EMPTY,
         ArchiveSegmentNumber: EMPTY,
         ISRC: EMPTY,
-        Source: EMPTY
+        Source: entry.publication.title
       },
       ExternalDocuments: {
         CueSheet: EMPTY,
