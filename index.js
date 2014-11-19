@@ -22,6 +22,7 @@ mkdirp('./out', function() {
     .pipe(addMeta())
     .pipe(addPublication())
     .pipe(addIdentity())
+    .pipe(ensureTargetPath())
     .pipe(ensureAudioFile())
     .pipe(copyFile())
     .pipe(dumpXML())
@@ -170,12 +171,14 @@ function addMeta() {
     var trackFileUrl = entry.track.document.audio_file_url;
     var localPath = url.parse(trackFileUrl).pathname;
     var cacheFile = path.join(__dirname, 'cache', localPath);
+    var targetPath = path.join(__dirname, 'out', ''+entry.year);
 
     var baseName = generateFileBaseName(entry);
     
     callback(null, xtend(entry, {
       localPath: localPath,
       fileUrl: trackFileUrl,
+      targetPath: targetPath,
       cacheFile: cacheFile,
       baseName: baseName
     }));
@@ -244,10 +247,23 @@ function ensureAudioFile() {
   });
 }
 
+function ensureTargetPath() {
+  return through.obj(function(entry, enc, callback) {
+    fs.exists(entry.targetPath, function (exists) {
+      if (exists) {
+        return callback(null, entry);
+      }
+      mkdirp(entry.targetPath, function (err) {
+        err ? callback(err) : callback(null, entry);
+      })
+    });
+  });
+}
+
 function copyFile() {
   return through.obj(function(entry, enc, callback) {
     fs.createReadStream(entry.cacheFile)
-      .pipe(fs.createWriteStream(__dirname + '/out/' + entry.baseName + path.extname(entry.cacheFile)))
+      .pipe(fs.createWriteStream(path.join(entry.targetPath, entry.baseName + path.extname(entry.cacheFile))))
       .on('finish', function() {
         callback(null, entry);
       })
@@ -257,7 +273,7 @@ function copyFile() {
 
 function dumpJSON() {
   return through.obj(function(entry, enc, callback) {
-    var target = __dirname + '/out/' + entry.baseName + ".json";
+    var target = path.join(entry.targetPath, entry.baseName + ".json");
     var json = {
       year: entry.year,
       artist: entry.artist.document,
@@ -273,7 +289,7 @@ function dumpXML() {
   return through.obj(function(entry, enc, callback) {
     var xmlContent = buildXML(entry.year, entry);
 
-    var target = __dirname + '/out/' + entry.baseName + ".xml";
+    var target = path.join(entry.targetPath, entry.baseName + ".xml");
     fs.writeFile(target, xmlContent, function(err) {
       callback(err, entry);
     });
